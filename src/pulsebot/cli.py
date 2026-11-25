@@ -13,12 +13,44 @@ from pulsebot.models import BacktestReport, RiskConfig, Trade
 from pulsebot.strategies import GridStrategy, RsiEmaDipStrategy, Strategy
 
 
-def build_strategy(name: str, grid_step: float = 0.02) -> Strategy:
+def build_strategy(
+    name: str,
+    *,
+    grid_step: float = 0.02,
+    rsi_buy: float = 35.0,
+    rsi_sell: float = 68.0,
+    ema_period: int = 50,
+    trend_tolerance: float = 0.02,
+) -> Strategy:
     if name == "rsi_ema_dip":
-        return RsiEmaDipStrategy()
+        return RsiEmaDipStrategy(
+            ema_period=ema_period,
+            rsi_buy=rsi_buy,
+            rsi_sell=rsi_sell,
+            trend_tolerance_pct=trend_tolerance,
+        )
     if name == "grid":
         return GridStrategy(step_pct=grid_step)
     raise ValueError(f"Unknown strategy: {name}")
+
+
+def _add_strategy_args(subparser: argparse.ArgumentParser, default_strategy: str, default_grid_step: float) -> None:
+    subparser.add_argument("--strategy", choices=["rsi_ema_dip", "grid"], default=default_strategy)
+    subparser.add_argument(
+        "--grid-step",
+        type=float,
+        default=default_grid_step,
+        help=f"Grid step fraction (default: {default_grid_step})",
+    )
+    subparser.add_argument("--rsi-buy", type=float, default=35.0, help="RSI entry threshold (default: 35.0)")
+    subparser.add_argument("--rsi-sell", type=float, default=68.0, help="RSI exit threshold (default: 68.0)")
+    subparser.add_argument("--ema-period", type=int, default=50, help="EMA trend filter period (default: 50)")
+    subparser.add_argument(
+        "--trend-tolerance",
+        type=float,
+        default=0.02,
+        help="Max fraction below EMA allowed for dip entry (default: 0.02 = 2%%)",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -34,8 +66,7 @@ def build_parser() -> argparse.ArgumentParser:
     bt.add_argument("--symbol", default="BTCUSDT", help="Trading pair (default: BTCUSDT)")
     bt.add_argument("--interval", default="1h", help="Candle interval e.g. 15m, 1h, 4h, 1d (default: 1h)")
     bt.add_argument("--limit", type=int, default=500, help="Number of historical candles, max 1000 (default: 500)")
-    bt.add_argument("--strategy", choices=["rsi_ema_dip", "grid"], default="rsi_ema_dip")
-    bt.add_argument("--grid-step", type=float, default=0.02, help="Grid step fraction, e.g. 0.02 for 2%%")
+    _add_strategy_args(bt, default_strategy="rsi_ema_dip", default_grid_step=0.02)
     bt.add_argument("--balance", type=float, default=1000.0, help="Starting USDT balance (default: 1000)")
     bt.add_argument("--fee", type=float, default=0.001, help="Exchange fee fraction (default: 0.001 = 0.1%%)")
     bt.add_argument("--db", type=Path, default=None, help="Optional SQLite ledger path to save results")
@@ -43,8 +74,7 @@ def build_parser() -> argparse.ArgumentParser:
     paper = subparsers.add_parser("paper", help="Run live paper-trading loop against real Binance prices.")
     paper.add_argument("--symbol", default="BTCUSDT", help="Trading pair (default: BTCUSDT)")
     paper.add_argument("--interval", default="1m", help="Candle interval (default: 1m)")
-    paper.add_argument("--strategy", choices=["rsi_ema_dip", "grid"], default="grid")
-    paper.add_argument("--grid-step", type=float, default=0.01, help="Grid step fraction (default: 0.01 = 1%%)")
+    _add_strategy_args(paper, default_strategy="grid", default_grid_step=0.01)
     paper.add_argument("--balance", type=float, default=1000.0, help="Starting virtual USDT balance")
     paper.add_argument("--poll", type=float, default=30.0, help="Seconds between market checks (default: 30)")
     paper.add_argument("--cycles", type=int, default=0, help="Number of cycles (0 = run until Ctrl+C)")
@@ -81,7 +111,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         if args.command == "backtest":
             client = BinancePublicClient()
             candles = client.fetch_klines(args.symbol, args.interval, args.limit)
-            strategy = build_strategy(args.strategy, grid_step=args.grid_step)
+            strategy = build_strategy(
+                args.strategy,
+                grid_step=args.grid_step,
+                rsi_buy=args.rsi_buy,
+                rsi_sell=args.rsi_sell,
+                ema_period=args.ema_period,
+                trend_tolerance=args.trend_tolerance,
+            )
 
             with TradeLedger(args.db) as ledger:
                 engine = BacktestEngine(
@@ -98,7 +135,14 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         if args.command == "paper":
             client = BinancePublicClient()
-            strategy = build_strategy(args.strategy, grid_step=args.grid_step)
+            strategy = build_strategy(
+                args.strategy,
+                grid_step=args.grid_step,
+                rsi_buy=args.rsi_buy,
+                rsi_sell=args.rsi_sell,
+                ema_period=args.ema_period,
+                trend_tolerance=args.trend_tolerance,
+            )
             print(f"Starting paper trader for {args.symbol.upper()} ({args.strategy}) — Ctrl+C to stop.")
 
             def _log_tick(cycle: int, equity: float, trade: Trade | None, note: str) -> None:

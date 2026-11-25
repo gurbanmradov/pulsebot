@@ -14,7 +14,7 @@
 
 - **Unified Backtest & Paper-Trading Engine:** Uses identical portfolio accounting and risk enforcement across historical simulations and live Binance price feeds (no API key required).
 - **Mandatory Risk Guardrails (`RiskManager`):** Enforces per-trade allocation caps, hard stop-loss, trailing take-profit, post-trade cooldowns, and a daily drawdown kill-switch.
-- **Pluggable Strategies (Stdlib Only):** Includes a trend-filtered dip strategy (`rsi_ema_dip`) and a rebound `grid` strategy with from-scratch Wilder RSI and EMA implementations.
+- **Configurable Strategies (Stdlib Only):** Includes a trend-filtered dip strategy (`rsi_ema_dip`) and a rebound `grid` strategy with from-scratch Wilder RSI and EMA implementations.
 - **SQLite Trade Ledger:** Persists every run and executed trade locally (`runs` and `trades` tables) for repeatable audits.
 - **Buy & Hold Benchmark:** Compares net strategy return (after fees and slippage) directly against passive Buy & Hold over the exact same window.
 
@@ -37,9 +37,15 @@ Run a historical backtest on the last 500 hourly BTC/USDT candles:
 pulsebot backtest --symbol BTCUSDT --interval 1h --limit 500 --strategy rsi_ema_dip --balance 1000
 ```
 
-Test the Grid strategy on ETH/USDT:
+Tune `rsi_ema_dip` parameters for daily (`1d`) candles:
 ```bash
-pulsebot backtest --symbol ETHUSDT --interval 1h --limit 500 --strategy grid --grid-step 0.02
+pulsebot backtest --symbol BTCUSDT --interval 1d --limit 365 \
+  --strategy rsi_ema_dip --rsi-buy 42 --ema-period 50 --trend-tolerance 0.08
+```
+
+Test the Grid strategy on SOL/USDT:
+```bash
+pulsebot backtest --symbol SOLUSDT --interval 1h --limit 500 --strategy grid --grid-step 0.02
 ```
 
 Start a live virtual paper-trading session (Ctrl+C to stop):
@@ -47,10 +53,22 @@ Start a live virtual paper-trading session (Ctrl+C to stop):
 pulsebot paper --symbol BTCUSDT --interval 1m --strategy grid --poll 30
 ```
 
-View recent runs recorded in SQLite:
+Inspect recent runs recorded in SQLite:
 ```bash
 pulsebot history
 ```
+
+---
+
+## Sample Backtest Benchmark (Bearish 500h Window)
+
+Measured on 500 consecutive `1h` Binance candles starting from `$1,000.00` (0.1% fee, 0.05% slippage):
+
+| Pair & Strategy | Final Balance | Buy & Hold | Alpha vs B&H | Max Drawdown | Fees Paid |
+|---|---:|---:|---:|---:|---:|
+| `BTCUSDT` — `rsi_ema_dip` | $990.14 (-0.99%) | $742.39 (-25.76%) | +24.77% | 2.07% | $0.74 |
+| `BTCUSDT` — `grid` (2%) | $955.18 (-4.48%) | $742.30 (-25.77%) | +21.29% | 5.56% | $4.32 |
+| `SOLUSDT` — `grid` (2%) | $957.28 (-4.27%) | $731.18 (-26.88%) | +22.61% | 4.59% | $7.81 |
 
 ---
 
